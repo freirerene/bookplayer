@@ -10,7 +10,7 @@ from threading import Lock
 from typing import Dict, List
 from urllib.parse import quote, unquote
 
-from fastapi import FastAPI, Form, HTTPException, Query, Request, status
+from fastapi import FastAPI, Form, HTTPException, Query, Request, Response, status
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -191,7 +191,7 @@ async def login_submit(
     password: str = Form(...),
     csrf_token: str = Form(...),
     next_path: str = Form(default=""),
-) -> RedirectResponse | HTMLResponse:
+) -> Response:
     if not validate_csrf_token(request, csrf_token):
         context = {
             "request": request,
