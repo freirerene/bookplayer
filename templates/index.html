@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Player</title>
+    <link rel="stylesheet" href="{{ request.url_for('static', path='css/styles.css') }}">
+</head>
+<body>
+    <div class="layout">
+        <header class="header">
+            <div class="header-info">
+                <h1>Audio Player</h1>
+                <p class="subtitle">Media root: {{ media_root }}</p>
+            </div>
+            <form class="logout-form" method="post" action="{{ request.url_for('logout') }}">
+                <span class="user">Logged in as {{ auth_username }}</span>
+                <button type="submit" class="logout">Logout</button>
+            </form>
+        </header>
+        <nav class="breadcrumbs">
+            <a href="{{ request.url_for('index') }}" class="breadcrumb">Home</a>
+            {% for crumb in breadcrumbs %}
+                <span class="separator">/</span>
+                <a href="{{ request.url_for('index') }}?path={{ crumb.path | urlencode }}" class="breadcrumb">{{ crumb.name }}</a>
+            {% endfor %}
+            {% if parent_path is not none %}
+                <a href="{{ request.url_for('index') }}?path={{ parent_path | urlencode }}" class="breadcrumb parent">⬆︎ Up</a>
+            {% endif %}
+        </nav>
+        <main class="content">
+            <section class="panel">
+                <h2>Folders</h2>
+                {% if directories %}
+                    <ul class="item-list">
+                        {% for directory in directories %}
+                            <li>
+                                <a href="{{ request.url_for('index') }}?path={{ directory.path | urlencode }}" class="item">{{ directory.name }}</a>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p class="empty">No subfolders</p>
+                {% endif %}
+            </section>
+            <section class="panel">
+                <h2>Audio Files</h2>
+                {% if audio_files %}
+                    <ul class="item-list" id="audio-list">
+                        {% for audio in audio_files %}
+                            <li>
+                                <button class="item play" data-file="{{ audio.path }}" data-name="{{ audio.name }}">{{ audio.name }}</button>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p class="empty">No audio files</p>
+                {% endif %}
+            </section>
+        </main>
+        <section class="player" id="player">
+            <div class="now-playing">
+                <h2 id="track-title">Select a track</h2>
+                <p id="resume-info" class="resume-info"></p>
+            </div>
+            <div class="playback-rate" id="playback-controls">
+                <span class="label">Speed:</span>
+                <button type="button" class="rate" data-rate="1">1×</button>
+                <button type="button" class="rate" data-rate="1.25">1.25×</button>
+                <button type="button" class="rate" data-rate="1.5">1.5×</button>
+                <button type="button" class="rate" data-rate="2">2×</button>
+            </div>
+            <audio id="audio-player" controls preload="metadata">
+                Your browser does not support the audio element.
+            </audio>
+        </section>
+    </div>
+    <script src="{{ request.url_for('static', path='js/player.js') }}" defer></script>
+</body>
+</html>
