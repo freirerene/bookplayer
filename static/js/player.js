@@ -15,6 +15,7 @@
     let lastSync = 0;
     let playbackRate = 1;
     let redirectingToLogin = false;
+    let currentPlayed = false;
     const SYNC_INTERVAL_MS = 5000;
 
     function formatTime(seconds) {
@@ -28,6 +29,10 @@
     }
 
     function setResumeMessage(position, duration) {
+        if (currentPlayed) {
+            resumeInfo.textContent = 'Marked as played';
+            return;
+        }
         if (position > 0 && Number.isFinite(duration) && duration > 0) {
             resumeInfo.textContent = `Resume from ${formatTime(position)} of ${formatTime(duration)}`;
         } else if (position > 0) {
@@ -38,6 +43,10 @@
     }
 
     function updateProgressDisplay() {
+        if (currentPlayed) {
+            resumeInfo.textContent = 'Marked as played';
+            return;
+        }
         if (!Number.isFinite(audio.duration) || audio.duration <= 0) {
             return;
         }
@@ -58,15 +67,15 @@
             const response = await fetch(`/api/progress?file=${encodeURIComponent(file)}`);
             if (response.status === 401) {
                 redirectToLogin();
-                return { position: 0, duration: 0 };
+                return { position: 0, duration: 0, played: false };
             }
             if (!response.ok) {
-                return { position: 0, duration: 0 };
+                return { position: 0, duration: 0, played: false };
             }
             return await response.json();
         } catch (error) {
             console.error('Failed to load progress', error);
-            return { position: 0, duration: 0 };
+            return { position: 0, duration: 0, played: false };
         }
     }
 
@@ -107,6 +116,11 @@
             });
             if (response && response.status === 401) {
                 redirectToLogin();
+            } else if (response && response.ok) {
+                const payload = await response.json();
+                currentPlayed = Boolean(payload.played);
+                updateItemState();
+                setResumeMessage(audio.currentTime, audio.duration);
             }
         } catch (error) {
             console.error('Failed to sync progress', error);
@@ -152,6 +166,14 @@
         }
     }
 
+    function updateItemState() {
+        if (!currentButton) {
+            return;
+        }
+        currentButton.classList.toggle('played', currentPlayed);
+        currentButton.dataset.played = currentPlayed ? 'true' : 'false';
+    }
+
     async function loadTrack(button) {
         const file = button.dataset.file;
         const name = button.dataset.name || file;
@@ -171,9 +193,14 @@
         audio.load();
         audio.playbackRate = playbackRate;
 
+        currentPlayed = button.dataset.played === 'true';
+        updateItemState();
+
         const progress = await fetchProgress(file);
         pendingResume = progress.position || 0;
+        currentPlayed = Boolean(progress.played);
         setResumeMessage(pendingResume, progress.duration || 0);
+        updateItemState();
     }
 
     if (audioList) {
@@ -206,7 +233,9 @@
     });
 
     audio.addEventListener('ended', () => {
-        resumeInfo.textContent = 'Playback finished';
+        currentPlayed = true;
+        updateItemState();
+        resumeInfo.textContent = 'Marked as played';
         syncProgress(true);
     });
 

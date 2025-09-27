@@ -15,6 +15,7 @@
             </div>
             <form class="logout-form" method="post" action="{{ request.url_for('logout') }}">
                 <span class="user">Logged in as {{ auth_username }}</span>
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <button type="submit" class="logout">Logout</button>
             </form>
         </header>
@@ -49,7 +50,14 @@
                     <ul class="item-list" id="audio-list">
                         {% for audio in audio_files %}
                             <li>
-                                <button class="item play" data-file="{{ audio.path }}" data-name="{{ audio.name }}">{{ audio.name }}</button>
+                                <button
+                                    class="item play {% if audio.played %}played{% endif %}"
+                                    data-file="{{ audio.path }}"
+                                    data-name="{{ audio.name }}"
+                                    data-played="{{ 'true' if audio.played else 'false' }}"
+                                >
+                                    {{ audio.name }}
+                                </button>
                             </li>
                         {% endfor %}
                     </ul>

@@ -14,6 +14,7 @@
         {% endif %}
         <form method="post" action="{{ request.url_for('login') }}" class="auth-form">
             <input type="hidden" name="next_path" value="{{ next_path }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <label class="auth-field">
                 <span>Username</span>
                 <input type="text" name="username" required autofocus autocomplete="username">
@@ -23,7 +24,7 @@
                 <input type="password" name="password" required autocomplete="current-password">
             </label>
             <button type="submit" class="auth-submit">Sign In</button>
-            <p class="auth-hint">Default credentials from env vars `PLAYER_USERNAME` / `PLAYER_PASSWORD`.</p>
+            <p class="auth-hint">Credentials are supplied via environment variables.</p>
         </form>
     </main>
 </body>

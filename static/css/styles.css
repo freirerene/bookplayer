@@ -134,6 +134,26 @@ body {
     background: rgba(127, 181, 255, 0.2);
 }
 
+.item.play.played {
+    opacity: 0.7;
+    position: relative;
+}
+
+.item.play.played::after {
+    content: '●';
+    color: #55d37f;
+    font-size: 0.75rem;
+    position: absolute;
+    right: 0.5rem;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.item.play.played.active {
+    opacity: 1;
+    background: rgba(85, 211, 127, 0.2);
+}
+
 .empty {
     color: #667;
     font-size: 0.9rem;

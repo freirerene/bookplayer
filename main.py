@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import mimetypes
 import os
+import secrets
+import warnings
 from pathlib import Path
 from threading import Lock
 from typing import Dict, List
@@ -22,9 +24,37 @@ DATA_DIR = Path(os.getenv("PLAYER_DATA_DIR", APP_ROOT / "data")).resolve()
 PROGRESS_FILE = DATA_DIR / "progress.json"
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac", ".opus"}
 SESSION_COOKIE = os.getenv("PLAYER_SESSION_COOKIE", "player_session")
-SECRET_KEY = os.getenv("PLAYER_SECRET_KEY", "change-me")
-AUTH_USERNAME = os.getenv("PLAYER_USERNAME", "admin")
-AUTH_PASSWORD = os.getenv("PLAYER_PASSWORD", "secret")
+
+
+def require_env(name: str, *, min_length: int | None = None) -> str:
+    value = os.getenv(name)
+    if not value:
+        raise RuntimeError(f"Environment variable {name} must be set.")
+    if min_length is not None and len(value) < min_length:
+        raise RuntimeError(
+            f"Environment variable {name} must be at least {min_length} characters."
+        )
+    return value
+
+
+def env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+SECRET_KEY = require_env("PLAYER_SECRET_KEY", min_length=32)
+AUTH_USERNAME = require_env("PLAYER_USERNAME")
+AUTH_PASSWORD = require_env("PLAYER_PASSWORD", min_length=8)
+SESSION_MAX_AGE = int(os.getenv("PLAYER_SESSION_MAX_AGE", "604800"))
+SECURE_COOKIES = env_bool("PLAYER_SECURE_COOKIES", default=True)
+
+if not SECURE_COOKIES:
+    warnings.warn(
+        "PLAYER_SECURE_COOKIES is disabled; session cookies will not be marked secure.",
+        UserWarning,
+    )
 
 app = FastAPI(title="Audio Player")
 app.mount("/static", StaticFiles(directory=APP_ROOT / "static"), name="static")
@@ -34,6 +64,8 @@ app.add_middleware(
     secret_key=SECRET_KEY,
     session_cookie=SESSION_COOKIE,
     same_site="lax",
+    https_only=SECURE_COOKIES,
+    max_age=SESSION_MAX_AGE,
 )
 
 
@@ -69,8 +101,8 @@ class ProgressStore:
             data = self._load()
         return data.get(key)
 
-    def set(self, key: str, position: float, duration: float) -> None:
-        payload = {"position": position, "duration": duration}
+    def set(self, key: str, position: float, duration: float, played: bool) -> None:
+        payload = {"position": position, "duration": duration, "played": played}
         with self._lock:
             data = self._load()
             data[key] = payload
@@ -89,6 +121,33 @@ class ProgressPayload(BaseModel):
 class DirectoryEntry(BaseModel):
     name: str
     path: str
+
+
+class AudioEntry(BaseModel):
+    name: str
+    path: str
+    played: bool = False
+
+
+CSRF_SESSION_KEY = "csrf_token"
+
+
+def ensure_csrf_token(request: Request) -> str:
+    token = request.session.get(CSRF_SESSION_KEY)
+    if not token:
+        token = secrets.token_urlsafe(32)
+        request.session[CSRF_SESSION_KEY] = token
+    return token
+
+
+def validate_csrf_token(request: Request, token: str) -> bool:
+    expected = request.session.get(CSRF_SESSION_KEY)
+    if not expected or not token:
+        return False
+    try:
+        return secrets.compare_digest(token, expected)
+    except TypeError:
+        return False
 
 
 def is_authenticated(request: Request) -> bool:
@@ -120,6 +179,7 @@ async def login_page(request: Request) -> HTMLResponse:
         "request": request,
         "next_path": next_path,
         "error": None,
+        "csrf_token": ensure_csrf_token(request),
     }
     return templates.TemplateResponse("login.html", context)
 
@@ -129,10 +189,24 @@ async def login_submit(
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
+    csrf_token: str = Form(...),
     next_path: str = Form(default=""),
 ) -> RedirectResponse | HTMLResponse:
+    if not validate_csrf_token(request, csrf_token):
+        context = {
+            "request": request,
+            "next_path": next_path,
+            "error": "Session expired. Please try again.",
+            "csrf_token": ensure_csrf_token(request),
+        }
+        return templates.TemplateResponse(
+            "login.html", context, status_code=status.HTTP_400_BAD_REQUEST
+        )
+
     if username == AUTH_USERNAME and password == AUTH_PASSWORD:
         request.session["authenticated"] = True
+        request.session.pop(CSRF_SESSION_KEY, None)
+        ensure_csrf_token(request)
         destination = str(request.url_for("index"))
         if next_path:
             candidate = unquote(next_path)
@@ -144,6 +218,7 @@ async def login_submit(
         "request": request,
         "next_path": next_path,
         "error": "Invalid username or password",
+        "csrf_token": ensure_csrf_token(request),
     }
     return templates.TemplateResponse(
         "login.html", context, status_code=status.HTTP_401_UNAUTHORIZED
@@ -151,7 +226,11 @@ async def login_submit(
 
 
 @app.post("/logout", name="logout")
-async def logout(request: Request) -> RedirectResponse:
+async def logout(request: Request, csrf_token: str = Form(...)) -> RedirectResponse:
+    if not validate_csrf_token(request, csrf_token):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Invalid CSRF token"
+        )
     request.session.clear()
     return RedirectResponse(
         str(request.url_for("login")), status_code=status.HTTP_303_SEE_OTHER
@@ -167,13 +246,13 @@ def validate_within_media_root(target: Path) -> Path:
     return resolved
 
 
-def list_directory(relative_path: str) -> Dict[str, List[DirectoryEntry]]:
+def list_directory(relative_path: str) -> Dict[str, List[DirectoryEntry] | List[AudioEntry]]:
     directory = validate_within_media_root(MEDIA_ROOT / relative_path)
     if not directory.exists() or not directory.is_dir():
         raise HTTPException(status_code=404, detail="Directory not found")
 
     directories: List[DirectoryEntry] = []
-    audio_files: List[DirectoryEntry] = []
+    audio_files: List[AudioEntry] = []
     for entry in sorted(
         directory.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())
     ):
@@ -183,7 +262,11 @@ def list_directory(relative_path: str) -> Dict[str, List[DirectoryEntry]]:
         if entry.is_dir():
             directories.append(DirectoryEntry(name=entry.name, path=rel_path))
         elif entry.is_file() and entry.suffix.lower() in AUDIO_EXTENSIONS:
-            audio_files.append(DirectoryEntry(name=entry.name, path=rel_path))
+            progress = progress_store.get(rel_path)
+            played = bool(progress.get("played")) if progress else False
+            audio_files.append(
+                AudioEntry(name=entry.name, path=rel_path, played=played)
+            )
 
     return {"directories": directories, "audio_files": audio_files}
 
@@ -218,6 +301,7 @@ async def index(request: Request, path: str = "") -> HTMLResponse:
         "parent_path": parent_path,
         "media_root": MEDIA_ROOT.name or str(MEDIA_ROOT),
         "auth_username": AUTH_USERNAME,
+        "csrf_token": ensure_csrf_token(request),
     }
     return templates.TemplateResponse("index.html", context)
 
@@ -258,8 +342,14 @@ async def get_progress(
     _ = get_audio_file(file)
     progress = progress_store.get(file)
     if not progress:
-        return JSONResponse({"position": 0.0, "duration": 0.0})
-    return JSONResponse(progress)
+        return JSONResponse({"position": 0.0, "duration": 0.0, "played": False})
+    return JSONResponse(
+        {
+            "position": progress.get("position", 0.0),
+            "duration": progress.get("duration", 0.0),
+            "played": bool(progress.get("played")),
+        }
+    )
 
 
 @app.post("/api/progress")
@@ -271,10 +361,20 @@ async def set_progress(request: Request, payload: ProgressPayload) -> JSONRespon
     _ = get_audio_file(payload.file)
     position = max(payload.position, 0.0)
     duration = max(payload.duration, 0.0)
+    existing = progress_store.get(payload.file) or {}
+    played = bool(existing.get("played"))
     if duration > 0 and position >= duration * 0.95:
         position = 0.0
-    progress_store.set(payload.file, position, duration)
-    return JSONResponse({"status": "ok", "position": position, "duration": duration})
+        played = True
+    progress_store.set(payload.file, position, duration, played)
+    return JSONResponse(
+        {
+            "status": "ok",
+            "position": position,
+            "duration": duration,
+            "played": played,
+        }
+    )
 
 
 if __name__ == "__main__":
