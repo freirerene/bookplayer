@@ -174,6 +174,25 @@
         currentButton.dataset.played = currentPlayed ? 'true' : 'false';
     }
 
+    function getTrackButtons() {
+        if (!audioList) {
+            return [];
+        }
+        return Array.from(audioList.querySelectorAll('button[data-file]'));
+    }
+
+    function findNextTrackButton() {
+        if (!currentButton) {
+            return null;
+        }
+        const buttons = getTrackButtons();
+        const index = buttons.indexOf(currentButton);
+        if (index === -1 || index + 1 >= buttons.length) {
+            return null;
+        }
+        return buttons[index + 1];
+    }
+
     async function loadTrack(button) {
         const file = button.dataset.file;
         const name = button.dataset.name || file;
@@ -201,6 +220,12 @@
         currentPlayed = Boolean(progress.played);
         setResumeMessage(pendingResume, progress.duration || 0);
         updateItemState();
+
+        try {
+            await audio.play();
+        } catch (error) {
+            console.warn('Automatic playback failed', error);
+        }
     }
 
     if (audioList) {
@@ -232,11 +257,18 @@
         syncProgress(true);
     });
 
-    audio.addEventListener('ended', () => {
+    audio.addEventListener('ended', async () => {
         currentPlayed = true;
         updateItemState();
         resumeInfo.textContent = 'Marked as played';
-        syncProgress(true);
+        await syncProgress(true);
+
+        const nextButton = findNextTrackButton();
+        if (!nextButton) {
+            return;
+        }
+
+        await loadTrack(nextButton);
     });
 
     window.addEventListener('beforeunload', () => {
