@@ -186,7 +186,6 @@ async def login_page(request: Request) -> HTMLResponse:
 @app.post("/login")
 async def login_submit(
     request: Request,
-    username: str = Form(...),
     password: str = Form(...),
     csrf_token: str = Form(...),
     next_path: str = Form(default=""),
