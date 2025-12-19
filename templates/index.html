@@ -14,7 +14,7 @@
                 <p class="subtitle">Media root: {{ media_root }}</p>
             </div>
             <form class="logout-form" method="post" action="{{ request.url_for('logout') }}">
-                <span class="user">Logged in as {{ auth_username }}</span>
+                <span class="user">Logged in</span>
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <button type="submit" class="logout">Logout</button>
             </form>

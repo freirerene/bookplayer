@@ -45,7 +45,6 @@ def env_bool(name: str, default: bool) -> bool:
 
 
 SECRET_KEY = require_env("PLAYER_SECRET_KEY", min_length=32)
-AUTH_USERNAME = require_env("PLAYER_USERNAME")
 AUTH_PASSWORD = require_env("PLAYER_PASSWORD", min_length=8)
 SESSION_MAX_AGE = int(os.getenv("PLAYER_SESSION_MAX_AGE", "604800"))
 SECURE_COOKIES = env_bool("PLAYER_SECURE_COOKIES", default=True)
@@ -203,7 +202,7 @@ async def login_submit(
             "login.html", context, status_code=status.HTTP_400_BAD_REQUEST
         )
 
-    if username == AUTH_USERNAME and password == AUTH_PASSWORD:
+    if password == AUTH_PASSWORD:
         request.session["authenticated"] = True
         request.session.pop(CSRF_SESSION_KEY, None)
         ensure_csrf_token(request)
@@ -246,7 +245,9 @@ def validate_within_media_root(target: Path) -> Path:
     return resolved
 
 
-def list_directory(relative_path: str) -> Dict[str, List[DirectoryEntry] | List[AudioEntry]]:
+def list_directory(
+    relative_path: str,
+) -> Dict[str, List[DirectoryEntry] | List[AudioEntry]]:
     directory = validate_within_media_root(MEDIA_ROOT / relative_path)
     if not directory.exists() or not directory.is_dir():
         raise HTTPException(status_code=404, detail="Directory not found")
@@ -300,7 +301,6 @@ async def index(request: Request, path: str = "") -> HTMLResponse:
         "audio_files": directory_data["audio_files"],
         "parent_path": parent_path,
         "media_root": MEDIA_ROOT.name or str(MEDIA_ROOT),
-        "auth_username": AUTH_USERNAME,
         "csrf_token": ensure_csrf_token(request),
     }
     return templates.TemplateResponse("index.html", context)
